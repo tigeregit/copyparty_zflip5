@@ -95,7 +95,7 @@ class MainActivity : AppCompatActivity() {
             refreshUi()
         }
         binding.btnAllFiles.setOnClickListener { requestAllFilesAccess() }
-        binding.btnCopyError.setOnClickListener { copyErrorToClipboard() }
+        binding.btnCopyError.setOnClickListener { copyErrorReport() }
 
         ensureNotificationPermission()
         refreshUi()
@@ -123,16 +123,37 @@ class MainActivity : AppCompatActivity() {
         super.onStop()
     }
 
-    private fun copyErrorToClipboard() {
-        val text = FileServerService.lastError
+    private fun copyErrorReport() {
+        val err = FileServerService.lastError
             ?: binding.tvError.text?.toString()
             ?: ""
-        if (text.isBlank()) {
+        if (err.isBlank()) {
             Toast.makeText(this, R.string.toast_no_error, Toast.LENGTH_SHORT).show()
             return
         }
+        val versionName = try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                packageManager.getPackageInfo(
+                    packageName,
+                    PackageManager.PackageInfoFlags.of(0)
+                ).versionName
+            } else {
+                @Suppress("DEPRECATION")
+                packageManager.getPackageInfo(packageName, 0).versionName
+            }
+        } catch (_: Exception) {
+            "unknown"
+        }
+        val report = buildString {
+            appendLine("Copyparty Z Flip5 error report")
+            appendLine("app: $versionName")
+            appendLine("device: ${Build.MANUFACTURER} ${Build.MODEL}")
+            appendLine("android: ${Build.VERSION.RELEASE} (SDK ${Build.VERSION.SDK_INT})")
+            appendLine("----")
+            append(err)
+        }
         val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        cm.setPrimaryClip(ClipData.newPlainText("copyparty error", text))
+        cm.setPrimaryClip(ClipData.newPlainText("copyparty error report", report))
         Toast.makeText(this, R.string.toast_error_copied, Toast.LENGTH_SHORT).show()
     }
 

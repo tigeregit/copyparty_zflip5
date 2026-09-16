@@ -49,9 +49,11 @@ class FakeTcpSrv(object):
 
 class FakeSvcHub(object):
     def __init__(self, socks=None):
+        import queue as _queue
         self.tcpsrv = FakeTcpSrv(socks or [])
         self.stopping = False
         self.sigterm_called = False
+        self.sig = _queue.Queue()
 
     def shutdown(self):
         self.stopping = True
@@ -73,6 +75,7 @@ class PartyBridgeTests(unittest.TestCase):
         pb._thread = None
         pb._error = None
         pb._svchub_patched = False
+        pb._signal_patched = False
         pb._stopping = False
         with pb._log_lock:
             pb._log_ring.clear()
@@ -319,6 +322,104 @@ class PartyBridgeTests(unittest.TestCase):
         red = pb._redact_argv(argv)
         self.assertEqual(red[red.index("-a") + 1], "<redacted>")
         self.assertNotIn("s3cret", " ".join(red))
+
+
+    def test_patch_signal_ignores_non_main_thread(self):
+        """signal.signal on a dummy thread must not kill the wrapper."""
+        import signal
+
+        # Force re-patch
+        pb._signal_patched = False
+        pb._patch_signal()
+        self.assertTrue(pb._signal_patched)
+
+        errors = []
+        result = []
+
+        def worker():
+            try:
+                # Under CPython this raises ValueError on non-main threads.
+                # Our wrapper must swallow ValueError/OSError/RuntimeError.
+                out = signal.signal(signal.SIGTERM, signal.SIG_DFL)
+                result.append(out)
+            except Exception as e:
+                errors.append(e)
+
+        t = threading.Thread(target=worker, name="dummy-signal-thr")
+        t.start()
+        t.join(timeout=2.0)
+        self.assertFalse(t.is_alive())
+        self.assertEqual(errors, [], "wrapper must not propagate signal errors: %r" % (errors,))
+        # On non-main thread safe_signal returns None; on main it may return previous handler.
+        # Either way the thread must survive.
+        self.assertTrue(len(result) == 1)
+
+    def test_patch_signal_idempotent(self):
+        pb._signal_patched = False
+        pb._patch_signal()
+        import signal
+        first = signal.signal
+        pb._patch_signal()
+        self.assertIs(signal.signal, first)
+
+    def test_wake_runner_posts_sigterm(self):
+        import signal
+        hub = FakeSvcHub()
+        pb._wake_runner(hub)
+        got = hub.sig.get(timeout=1.0)
+        self.assertEqual(got, signal.SIGTERM)
+
+    def test_hub_captured_on_half_init_failure(self):
+        """_hub must be set in finally even if Orig.__init__ raises."""
+        copyparty = types.ModuleType("copyparty")
+        main_mod = types.ModuleType("copyparty.__main__")
+        svchub = types.ModuleType("copyparty.svchub")
+
+        class BoomHub(object):
+            def __init__(self, *a, **kw):
+                self.tcpsrv = FakeTcpSrv([])
+                raise RuntimeError("half-init boom")
+
+            def shutdown(self):
+                raise SystemExit(0)
+
+            def cb_httpsrv_up(self):
+                pass
+
+        svchub.SvcHub = BoomHub
+        main_mod.SvcHub = BoomHub
+        sys.modules["copyparty"] = copyparty
+        sys.modules["copyparty.__main__"] = main_mod
+        sys.modules["copyparty.svchub"] = svchub
+
+        pb._svchub_patched = False
+        pb._signal_patched = False
+        pb._capture_hub()
+        with self.assertRaises(RuntimeError):
+            svchub.SvcHub()
+        self.assertIsNotNone(pb._hub)
+        self.assertTrue(getattr(type(pb._hub), "_party_bridge_capture", False))
+
+    def test_build_argv_omits_reuseaddr(self):
+        argv = pb._build_argv(3923, "/tmp", True, "", "/tmp/hist", "0.0.0.0")
+        self.assertNotIn("--reuseaddr", argv)
+
+    def test_capture_hub_calls_patch_signal(self):
+        copyparty = types.ModuleType("copyparty")
+        main_mod = types.ModuleType("copyparty.__main__")
+        svchub = types.ModuleType("copyparty.svchub")
+        svchub.SvcHub = FakeSvcHub
+        main_mod.SvcHub = FakeSvcHub
+        sys.modules["copyparty"] = copyparty
+        sys.modules["copyparty.__main__"] = main_mod
+        sys.modules["copyparty.svchub"] = svchub
+
+        pb._svchub_patched = False
+        pb._signal_patched = False
+        pb._capture_hub()
+        self.assertTrue(pb._signal_patched)
+
+
 
 
 if __name__ == "__main__":
