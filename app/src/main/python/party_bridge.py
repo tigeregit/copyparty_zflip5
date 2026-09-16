@@ -356,7 +356,6 @@ def _build_argv(port, share_path, read_only, password, hist_dir, bind_host):
         "--hist", hist_dir,
         "--dbpath", hist_dir,
         "--no-robots",
-        "--reuseaddr",
     ]
 
     vol_src = share_path
