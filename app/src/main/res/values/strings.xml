@@ -33,6 +33,10 @@
     <string name="btn_all_files">授予所有文件访问权限</string>
     <string name="all_files_granted">所有文件访问：已授予</string>
     <string name="all_files_missing">所有文件访问：未授予（copyparty 需要真实路径）</string>
+    <string name="error_label">错误信息</string>
+    <string name="btn_copy_error">复制错误</string>
+    <string name="toast_error_copied">错误信息已复制到剪贴板</string>
+    <string name="toast_no_error">没有可复制的错误信息</string>
     <string name="action_start">启动</string>
     <string name="action_stop">停止</string>
     <string name="qr_label">扫码访问（同一 Wi‑Fi）</string>

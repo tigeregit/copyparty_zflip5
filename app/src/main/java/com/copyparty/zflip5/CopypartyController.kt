@@ -58,7 +58,8 @@ object CopypartyController {
         try {
             ensurePython(context)
             Python.getInstance().getModule("party_bridge").callAttr("stop")
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
+            // copyparty.shutdown() used to sys.exit() into this thread
             Log.e(TAG, "stop exception", e)
         } finally {
             startedOk = false

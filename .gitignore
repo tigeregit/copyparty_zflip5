@@ -34,6 +34,8 @@ obj/
 app/build/
 **/python/env/
 **/chaquopy/
+**/__pycache__/
+*.pyc
 
 # Captures / profiling
 captures/

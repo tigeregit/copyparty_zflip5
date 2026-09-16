@@ -33,6 +33,10 @@
     <string name="btn_all_files">Grant all-files access</string>
     <string name="all_files_granted">All-files access: granted</string>
     <string name="all_files_missing">All-files access: missing (copyparty needs real paths)</string>
+    <string name="error_label">Error</string>
+    <string name="btn_copy_error">Copy error</string>
+    <string name="toast_error_copied">Error copied to clipboard</string>
+    <string name="toast_no_error">No error to copy</string>
     <string name="action_start">Start</string>
     <string name="action_stop">Stop</string>
     <string name="qr_label">Scan to open (same Wi‑Fi)</string>

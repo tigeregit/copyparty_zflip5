@@ -51,9 +51,18 @@ class FileServerService : Service() {
     }
 
     private fun startServerInternal(): Boolean {
-        if (running && CopypartyController.isRunning(this)) {
-            WidgetUpdateHelper.requestUpdate(this)
-            return true
+        if (CopypartyController.isRunning(this)) {
+            if (running) {
+                WidgetUpdateHelper.requestUpdate(this)
+                return true
+            }
+            // Python still listening after a failed / incomplete stop — free the port.
+            Log.w(TAG, "stale copyparty instance; stopping before restart")
+            try {
+                CopypartyController.stop(this)
+            } catch (e: Exception) {
+                Log.e(TAG, "stale stop failed", e)
+            }
         }
         val prefs = ServerPreferences(this)
         val uri = prefs.treeUriOrNull()
@@ -81,6 +90,8 @@ class FileServerService : Service() {
                 ?: "copyparty 启动失败"
             running = false
             lastUrl = null
+            WidgetUpdateHelper.requestUpdate(this)
+            sendBroadcast(Intent(ACTION_STATE_CHANGED).setPackage(packageName))
             return false
         }
         running = true
@@ -101,6 +112,7 @@ class FileServerService : Service() {
         }
         running = false
         lastUrl = null
+        // Keep lastError so the UI copy button still works after stop.
         WidgetUpdateHelper.requestUpdate(this)
         sendBroadcast(Intent(ACTION_STATE_CHANGED).setPackage(packageName))
     }

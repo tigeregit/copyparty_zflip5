@@ -2,6 +2,8 @@ package com.copyparty.zflip5
 
 import android.Manifest
 import android.content.BroadcastReceiver
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
@@ -93,6 +95,7 @@ class MainActivity : AppCompatActivity() {
             refreshUi()
         }
         binding.btnAllFiles.setOnClickListener { requestAllFilesAccess() }
+        binding.btnCopyError.setOnClickListener { copyErrorToClipboard() }
 
         ensureNotificationPermission()
         refreshUi()
@@ -118,6 +121,19 @@ class MainActivity : AppCompatActivity() {
         } catch (_: Exception) {
         }
         super.onStop()
+    }
+
+    private fun copyErrorToClipboard() {
+        val text = FileServerService.lastError
+            ?: binding.tvError.text?.toString()
+            ?: ""
+        if (text.isBlank()) {
+            Toast.makeText(this, R.string.toast_no_error, Toast.LENGTH_SHORT).show()
+            return
+        }
+        val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        cm.setPrimaryClip(ClipData.newPlainText("copyparty error", text))
+        Toast.makeText(this, R.string.toast_error_copied, Toast.LENGTH_SHORT).show()
     }
 
     private fun refreshNicChoices() {
@@ -354,7 +370,7 @@ class MainActivity : AppCompatActivity() {
         }
         val err = FileServerService.lastError
         binding.tvError.text = err ?: ""
-        binding.tvError.visibility =
+        binding.errorPanel.visibility =
             if (err.isNullOrBlank()) View.GONE else View.VISIBLE
 
         updateNicSummary()
