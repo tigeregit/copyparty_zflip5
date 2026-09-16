@@ -61,11 +61,20 @@
             android:text="@string/nic_label"
             android:textStyle="bold" />
 
-        <Spinner
-            android:id="@+id/spinnerNic"
+        <Button
+            android:id="@+id/btnNicSelect"
+            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:minHeight="48dp" />
+            android:text="@string/nic_select_btn" />
+
+        <TextView
+            android:id="@+id/tvNicSummary"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:textIsSelectable="true"
+            android:textSize="14sp" />
 
         <TextView
             android:layout_width="match_parent"

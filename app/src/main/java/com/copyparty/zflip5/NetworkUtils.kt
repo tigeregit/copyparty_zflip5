@@ -55,17 +55,25 @@ object NetworkUtils {
     }
 
     /**
-     * Best display / advertise IPv4 for LAN URL.
-     * Uses saved bindIp when set and still present; otherwise auto ranking.
+     * Best display / advertise IPv4 for LAN URL / QR / widget.
+     * - Auto or explicit 0.0.0.0 → auto ranking among usable ifaces
+     * - Specific IPs → best-ranked among selected that are still present; else first selected
      */
     fun displayIpv4(context: Context, prefs: ServerPreferences): String {
-        val selected = prefs.bindIp?.trim().orEmpty()
-        if (selected.isNotEmpty()) {
-            val stillThere = listUsableIpv4(context).any { it.ip == selected }
-            if (stillThere) return selected
-            // Fall through to auto if saved IP disappeared
+        if (prefs.isBindAuto() || prefs.isBindAll()) {
+            return autoPickIpv4(context) ?: "0.0.0.0"
         }
-        return autoPickIpv4(context) ?: "0.0.0.0"
+        val selected = prefs.selectedBindIpList()
+        if (selected.isEmpty()) {
+            return autoPickIpv4(context) ?: "0.0.0.0"
+        }
+        val usable = listUsableIpv4(context)
+        val stillThere = usable.filter { it.ip in selected }
+        if (stillThere.isNotEmpty()) {
+            // usable list is already ranked best-first
+            return stillThere.first().ip
+        }
+        return selected.first()
     }
 
     fun autoPickIpv4(context: Context): String? =
@@ -73,16 +81,36 @@ object NetworkUtils {
 
     /**
      * Host passed to copyparty `-i`.
-     * Empty / auto → 0.0.0.0 (listen all); specific → that IP.
+     * Auto or explicit all → 0.0.0.0; else comma-separated selected IPs.
      */
     fun bindHostForCopyparty(prefs: ServerPreferences): String {
-        val selected = prefs.bindIp?.trim().orEmpty()
-        return if (selected.isEmpty()) "0.0.0.0" else selected
+        if (prefs.isBindAuto() || prefs.isBindAll()) return "0.0.0.0"
+        val selected = prefs.selectedBindIpList()
+        return if (selected.isEmpty()) "0.0.0.0" else selected.joinToString(",")
     }
 
     fun baseUrl(context: Context, prefs: ServerPreferences): String {
         val ip = displayIpv4(context, prefs)
         return "http://$ip:${prefs.port}/"
+    }
+
+    /**
+     * One URL per selected specific IP (ranked), or single auto/all display URL.
+     * Useful for multi-line LAN URL TextView.
+     */
+    fun baseUrls(context: Context, prefs: ServerPreferences): List<String> {
+        val port = prefs.port
+        if (prefs.isBindAuto() || prefs.isBindAll()) {
+            return listOf("http://${displayIpv4(context, prefs)}:$port/")
+        }
+        val selected = prefs.selectedBindIpList()
+        if (selected.isEmpty()) {
+            return listOf("http://${displayIpv4(context, prefs)}:$port/")
+        }
+        val usable = listUsableIpv4(context)
+        val ordered = usable.map { it.ip }.filter { it in selected }.distinct()
+        val rest = selected.filter { it !in ordered }
+        return (ordered + rest).map { "http://$it:$port/" }
     }
 
     fun baseUrl(context: Context, port: Int): String {

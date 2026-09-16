@@ -14,10 +14,9 @@ import android.os.Bundle
 import android.os.Environment
 import android.provider.Settings
 import android.view.View
-import android.widget.AdapterView
-import android.widget.ArrayAdapter
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import com.copyparty.zflip5.databinding.ActivityMainBinding
@@ -31,9 +30,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var binding: ActivityMainBinding
     private lateinit var prefs: ServerPreferences
 
-    /** Spinner index 0 = Auto; 1..n = listUsableIpv4 entries */
+    /** Usable ifaces for multi-choice (after Auto + 0.0.0.0 rows). */
     private var nicChoices: List<LanInterface> = emptyList()
-    private var nicSpinnerReady = false
 
     private val openTree = registerForActivityResult(
         ActivityResultContracts.OpenDocumentTree()
@@ -83,8 +81,10 @@ class MainActivity : AppCompatActivity() {
         binding.switchReadOnly.isChecked = prefs.readOnly
         binding.etPassword.setText(prefs.password)
         updateShareRootLabel()
-        setupNicSpinner()
+        refreshNicChoices()
+        updateNicSummary()
 
+        binding.btnNicSelect.setOnClickListener { showNicMultiChoiceDialog() }
         binding.btnPickRoot.setOnClickListener { openTree.launch(null) }
         binding.btnSave.setOnClickListener { saveSettings() }
         binding.btnStart.setOnClickListener { startServer() }
@@ -107,7 +107,8 @@ class MainActivity : AppCompatActivity() {
             @Suppress("UnspecifiedRegisterReceiverFlag")
             registerReceiver(stateReceiver, filter)
         }
-        setupNicSpinner()
+        refreshNicChoices()
+        updateNicSummary()
         refreshUi()
     }
 
@@ -119,60 +120,129 @@ class MainActivity : AppCompatActivity() {
         super.onStop()
     }
 
-    private fun setupNicSpinner() {
+    private fun refreshNicChoices() {
         nicChoices = NetworkUtils.listUsableIpv4(this)
-        val labels = mutableListOf(getString(R.string.nic_auto))
+    }
+
+    private fun updateNicSummary() {
+        binding.tvNicSummary.text = when {
+            prefs.isBindAuto() -> getString(R.string.nic_summary_auto)
+            prefs.isBindAll() -> getString(R.string.nic_summary_all)
+            else -> {
+                val ips = prefs.selectedBindIpList()
+                val labels = ips.map { ip ->
+                    val name = nicChoices.firstOrNull { it.ip == ip }?.name
+                    if (name != null) getString(R.string.nic_item_fmt, name, ip) else ip
+                }
+                getString(R.string.nic_summary_ips, labels.joinToString(", "))
+            }
+        }
+    }
+
+    private fun showNicMultiChoiceDialog() {
+        refreshNicChoices()
+        val labels = mutableListOf(
+            getString(R.string.nic_auto),
+            getString(R.string.nic_all)
+        )
         for (item in nicChoices) {
             labels.add(getString(R.string.nic_item_fmt, item.name, item.ip))
         }
-        val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, labels)
-        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
-        nicSpinnerReady = false
-        binding.spinnerNic.adapter = adapter
-
-        // Restore selection
-        val savedIp = prefs.bindIp
-        var idx = 0
-        if (!savedIp.isNullOrBlank()) {
-            val found = nicChoices.indexOfFirst { it.ip == savedIp }
-            if (found >= 0) idx = found + 1
-        }
-        binding.spinnerNic.setSelection(idx.coerceIn(0, labels.size - 1), false)
-
-        binding.spinnerNic.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
-            override fun onItemSelected(
-                parent: AdapterView<*>?,
-                view: View?,
-                position: Int,
-                id: Long
-            ) {
-                if (!nicSpinnerReady) return
-                applyNicSelection(position, persist = true)
-                refreshUi()
-                WidgetUpdateHelper.requestUpdate(this@MainActivity)
+        val checked = BooleanArray(labels.size)
+        when {
+            prefs.isBindAuto() -> checked[0] = true
+            prefs.isBindAll() -> checked[1] = true
+            else -> {
+                val selected = prefs.selectedBindIpList().toSet()
+                for (i in nicChoices.indices) {
+                    if (nicChoices[i].ip in selected) checked[i + 2] = true
+                }
+                if (checked.none { it }) checked[0] = true
             }
-
-            override fun onNothingSelected(parent: AdapterView<*>?) {}
         }
-        nicSpinnerReady = true
+
+        val dialog = AlertDialog.Builder(this)
+            .setTitle(R.string.nic_dialog_title)
+            .setMultiChoiceItems(labels.toTypedArray(), checked) { d, which, isChecked ->
+                val list = (d as AlertDialog).listView ?: return@setMultiChoiceItems
+                if (isChecked) {
+                    when (which) {
+                        0 -> { // Auto exclusive
+                            for (i in checked.indices) {
+                                checked[i] = (i == 0)
+                                list.setItemChecked(i, checked[i])
+                            }
+                        }
+                        1 -> { // 0.0.0.0 exclusive with specific IPs
+                            checked[0] = false
+                            checked[1] = true
+                            list.setItemChecked(0, false)
+                            list.setItemChecked(1, true)
+                            for (i in 2 until checked.size) {
+                                checked[i] = false
+                                list.setItemChecked(i, false)
+                            }
+                        }
+                        else -> {
+                            checked[0] = false
+                            checked[1] = false
+                            checked[which] = true
+                            list.setItemChecked(0, false)
+                            list.setItemChecked(1, false)
+                            list.setItemChecked(which, true)
+                        }
+                    }
+                } else {
+                    checked[which] = false
+                    if (checked.none { it }) {
+                        checked[0] = true
+                        list.setItemChecked(0, true)
+                    }
+                }
+            }
+            .setPositiveButton(R.string.nic_ok) { _, _ ->
+                persistNicSelection(checked)
+                updateNicSummary()
+                refreshUi()
+                WidgetUpdateHelper.requestUpdate(this)
+            }
+            .setNegativeButton(R.string.nic_cancel, null)
+            .create()
+        dialog.show()
     }
 
-    private fun applyNicSelection(position: Int, persist: Boolean) {
-        if (position <= 0) {
-            if (persist) {
-                prefs.bindIp = null
+    private fun persistNicSelection(checked: BooleanArray) {
+        when {
+            checked.getOrElse(0) { false } -> {
+                prefs.bindIps = ""
                 prefs.bindIface = null
             }
-        } else {
-            val item = nicChoices.getOrNull(position - 1) ?: return
-            if (persist) {
-                prefs.bindIp = item.ip
-                prefs.bindIface = item.name
+            checked.getOrElse(1) { false } -> {
+                prefs.bindIps = ServerPreferences.BIND_ALL
+                prefs.bindIface = null
+            }
+            else -> {
+                val ips = mutableListOf<String>()
+                for (i in nicChoices.indices) {
+                    if (checked.getOrElse(i + 2) { false }) {
+                        ips.add(nicChoices[i].ip)
+                    }
+                }
+                if (ips.isEmpty()) {
+                    prefs.bindIps = ""
+                    prefs.bindIface = null
+                } else {
+                    prefs.bindIps = ips.joinToString(",")
+                    // Keep first iface name for legacy field when single
+                    prefs.bindIface = if (ips.size == 1) {
+                        nicChoices.firstOrNull { it.ip == ips[0] }?.name
+                    } else {
+                        null
+                    }
+                }
             }
         }
     }
-
-    private fun currentNicPosition(): Int = binding.spinnerNic.selectedItemPosition
 
     private fun ensureNotificationPermission() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -224,8 +294,9 @@ class MainActivity : AppCompatActivity() {
         prefs.port = port
         prefs.readOnly = binding.switchReadOnly.isChecked
         prefs.password = binding.etPassword.text.toString().trim()
-        applyNicSelection(currentNicPosition(), persist = true)
+        // bindIps already persisted via dialog; summary refresh only
         binding.etPort.setText(prefs.port.toString())
+        updateNicSummary()
         Toast.makeText(this, R.string.toast_saved, Toast.LENGTH_SHORT).show()
         WidgetUpdateHelper.requestUpdate(this)
         refreshUi()
@@ -261,16 +332,21 @@ class MainActivity : AppCompatActivity() {
         binding.tvStatus.setTextColor(
             if (running) Color.parseColor("#2E7D32") else Color.parseColor("#C62828")
         )
-        val url = if (running) {
-            FileServerService.lastUrl ?: NetworkUtils.baseUrl(this, prefs)
+
+        // Specific binds: show all selected URLs; auto/all: one primary (service lastUrl when running)
+        val displayUrls = if (!prefs.isBindAuto() && !prefs.isBindAll()) {
+            NetworkUtils.baseUrls(this, prefs)
+        } else if (running) {
+            listOf(FileServerService.lastUrl ?: NetworkUtils.baseUrl(this, prefs))
         } else {
-            NetworkUtils.baseUrl(this, prefs)
+            NetworkUtils.baseUrls(this, prefs)
         }
-        binding.tvLanUrl.text = url
+        binding.tvLanUrl.text = displayUrls.joinToString("\n")
+
         binding.btnStart.isEnabled = !running
         binding.btnStop.isEnabled = running
         // Changing NIC while running requires restart to re-bind
-        binding.spinnerNic.isEnabled = !running
+        binding.btnNicSelect.isEnabled = !running
         binding.tvAllFilesStatus.text = if (hasAllFilesAccess()) {
             getString(R.string.all_files_granted)
         } else {
@@ -281,8 +357,13 @@ class MainActivity : AppCompatActivity() {
         binding.tvError.visibility =
             if (err.isNullOrBlank()) View.GONE else View.VISIBLE
 
+        updateNicSummary()
+
         try {
-            val bmp = makeQr(url, 512)
+            // QR encodes primary URL only
+            val primary = displayUrls.firstOrNull()
+                ?: NetworkUtils.baseUrl(this, prefs)
+            val bmp = makeQr(primary, 512)
             binding.ivQr.setImageBitmap(bmp)
         } catch (_: Exception) {
             binding.ivQr.setImageDrawable(null)

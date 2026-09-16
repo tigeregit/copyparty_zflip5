@@ -9,9 +9,17 @@
     <string name="status_stopped">Stopped</string>
     <string name="lan_url_label">LAN URL</string>
     <string name="nic_label">NIC / LAN address</string>
-    <string name="nic_auto">Auto (prefer Wi‑Fi)</string>
-    <string name="nic_hint">Auto: listen on all interfaces, show best LAN IP. Manual: bind and show that IP.</string>
+    <string name="nic_select_btn">Choose bind addresses…</string>
+    <string name="nic_dialog_title">Choose bind addresses</string>
+    <string name="nic_auto">Auto</string>
+    <string name="nic_all">0.0.0.0 — all IPv4</string>
+    <string name="nic_summary_auto">Auto (listen 0.0.0.0, show best LAN IP)</string>
+    <string name="nic_summary_all">0.0.0.0 — all IPv4</string>
+    <string name="nic_summary_ips">Selected: %1$s</string>
+    <string name="nic_hint">Auto: listen on all NICs and show best LAN IP. 0.0.0.0: explicit all-IPv4 bind. Multi-select specific IPs (comma-separated for -i). Auto and 0.0.0.0 are exclusive.</string>
     <string name="nic_item_fmt">%1$s — %2$s</string>
+    <string name="nic_ok">OK</string>
+    <string name="nic_cancel">Cancel</string>
     <string name="port_label">Port</string>
     <string name="password_label">Password (optional → copyparty account share)</string>
     <string name="password_hint">Empty = anonymous (per read-only/RW)</string>
