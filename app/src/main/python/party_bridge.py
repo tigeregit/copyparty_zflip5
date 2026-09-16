@@ -16,6 +16,7 @@ _running = False
 _error = None
 _started_event = threading.Event()
 _svchub_patched = False
+_signal_patched = False
 _tracked_socks = []
 _stopping = False
 
@@ -26,6 +27,37 @@ def is_running():
 
 def last_error():
     return _error
+
+
+def _patch_signal():
+    """Allow copyparty to run outside the Python main thread.
+
+    SvcHub.run() registers OS signal handlers via signal.signal() AFTER the
+    listening sockets are already open.  Under Chaquopy the Python main
+    thread is the Android UI thread and copyparty runs in a background
+    thread, so signal.signal() raises ValueError -- killing the bridge
+    thread, losing the hub handle (stop() then cannot shut anything down)
+    and leaving the port bound, so the next start dies with EADDRINUSE.
+
+    Signal handlers are not needed in-app: shutdown is driven
+    programmatically via hub.shutdown() from Kotlin.
+    """
+    global _signal_patched
+    if _signal_patched:
+        return
+    import signal
+
+    orig_signal = signal.signal
+
+    def safe_signal(sig, handler):
+        try:
+            return orig_signal(sig, handler)
+        except (ValueError, OSError, RuntimeError):
+            # not the Python main thread; ignore like copyparty does on win
+            return None
+
+    signal.signal = safe_signal
+    _signal_patched = True
 
 
 def _close_one_sock(srv):
@@ -135,6 +167,8 @@ def _unwrap_svchub(cls):
 def _capture_hub():
     """Patch SvcHub once so we can shut it down from Kotlin without nesting wrappers."""
     global _svchub_patched
+    _patch_signal()
+
     import copyparty.__main__ as cpp_main
     import copyparty.svchub as svchub
 
@@ -149,10 +183,14 @@ def _capture_hub():
 
         def __init__(self, *a, **kw):
             global _hub
-            Orig.__init__(self, *a, **kw)
-            _hub = self
-            _track_hub_sockets(self)
-            _started_event.set()
+            try:
+                Orig.__init__(self, *a, **kw)
+                _track_hub_sockets(self)
+                _started_event.set()
+            finally:
+                # capture even a half-initialised hub so stop() can still
+                # close any sockets it managed to bind
+                _hub = self
 
         def cb_httpsrv_up(self):
             try:
@@ -169,13 +207,29 @@ def _capture_hub():
             try:
                 Orig.shutdown(self)
             except SystemExit:
-                # copyparty.shutdown() ends with sys.exit(); do not kill the
+                # upstream shutdown() ends with sys.exit(); do not kill the
                 # Chaquopy / Android caller thread.
                 return
 
     svchub.SvcHub = CapturingSvcHub
     cpp_main.SvcHub = CapturingSvcHub
     _svchub_patched = True
+
+
+def _wake_runner(hub):
+    """Unblock SvcHub.run() so the runner thread can exit.
+
+    run() parks in _signal_thr() waiting on hub.sig.get(); after shutdown
+    nothing wakes it, so the runner thread would linger and thread.join()
+    would stall for seconds on every stop.  Posting a signal makes the
+    loop observe stopping=True and return.
+    """
+    try:
+        import signal as _signal
+
+        hub.sig.put(_signal.SIGTERM)
+    except Exception:
+        pass
 
 
 def _build_argv(port, share_path, read_only, password, hist_dir, bind_host):
@@ -191,7 +245,6 @@ def _build_argv(port, share_path, read_only, password, hist_dir, bind_host):
         "--hist", hist_dir,
         "--dbpath", hist_dir,
         "--no-robots",
-        "--reuseaddr",
     ]
 
     vol_src = share_path
@@ -228,10 +281,6 @@ def _stop_unlocked():
                 pass
             except Exception:
                 print("[party_bridge] shutdown error:\n", traceback.format_exc())
-                try:
-                    hub.sigterm()
-                except Exception:
-                    pass
             finally:
                 done.set()
 
@@ -239,6 +288,7 @@ def _stop_unlocked():
             target=_graceful, name="copyparty-shutdown", daemon=True
         ).start()
         done.wait(timeout=3.0)
+        _wake_runner(hub)
 
     if t is not None and t.is_alive():
         t.join(timeout=5.0)

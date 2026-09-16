@@ -94,8 +94,8 @@ class MainActivity : AppCompatActivity() {
             FileServerService.stop(this)
             refreshUi()
         }
+        binding.btnCopyError.setOnClickListener { copyErrorReport() }
         binding.btnAllFiles.setOnClickListener { requestAllFilesAccess() }
-        binding.btnCopyError.setOnClickListener { copyErrorToClipboard() }
 
         ensureNotificationPermission()
         refreshUi()
@@ -121,19 +121,6 @@ class MainActivity : AppCompatActivity() {
         } catch (_: Exception) {
         }
         super.onStop()
-    }
-
-    private fun copyErrorToClipboard() {
-        val text = FileServerService.lastError
-            ?: binding.tvError.text?.toString()
-            ?: ""
-        if (text.isBlank()) {
-            Toast.makeText(this, R.string.toast_no_error, Toast.LENGTH_SHORT).show()
-            return
-        }
-        val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        cm.setPrimaryClip(ClipData.newPlainText("copyparty error", text))
-        Toast.makeText(this, R.string.toast_error_copied, Toast.LENGTH_SHORT).show()
     }
 
     private fun refreshNicChoices() {
@@ -338,6 +325,38 @@ class MainActivity : AppCompatActivity() {
         binding.root.postDelayed({ refreshUi() }, 800)
     }
 
+    private fun copyErrorReport() {
+        val err = FileServerService.lastError
+        if (err.isNullOrBlank()) {
+            Toast.makeText(this, R.string.toast_no_error, Toast.LENGTH_SHORT).show()
+            return
+        }
+        val versionName = try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                packageManager.getPackageInfo(
+                    packageName,
+                    PackageManager.PackageInfoFlags.of(0)
+                ).versionName
+            } else {
+                @Suppress("DEPRECATION")
+                packageManager.getPackageInfo(packageName, 0).versionName
+            }
+        } catch (_: Exception) {
+            "unknown"
+        }
+        val report = buildString {
+            appendLine("Copyparty Z Flip5 error report")
+            appendLine("app: $versionName")
+            appendLine("device: ${Build.MANUFACTURER} ${Build.MODEL}")
+            appendLine("android: ${Build.VERSION.RELEASE} (SDK ${Build.VERSION.SDK_INT})")
+            appendLine("----")
+            append(err)
+        }
+        val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        cm.setPrimaryClip(ClipData.newPlainText("copyparty error report", report))
+        Toast.makeText(this, R.string.toast_error_copied, Toast.LENGTH_SHORT).show()
+    }
+
     private fun refreshUi() {
         val running = FileServerService.running || CopypartyController.isRunning(this)
         binding.tvStatus.text = if (running) {
@@ -370,8 +389,9 @@ class MainActivity : AppCompatActivity() {
         }
         val err = FileServerService.lastError
         binding.tvError.text = err ?: ""
-        binding.errorPanel.visibility =
+        binding.tvError.visibility =
             if (err.isNullOrBlank()) View.GONE else View.VISIBLE
+        binding.btnCopyError.visibility = binding.tvError.visibility
 
         updateNicSummary()
 
