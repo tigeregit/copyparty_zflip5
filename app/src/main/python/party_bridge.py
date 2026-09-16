@@ -68,12 +68,12 @@ def _build_argv(port, share_path, read_only, password, hist_dir, bind_host):
         if read_only:
             argv.extend(["-v", "%s::r,share" % vol_src])
         else:
-            argv.extend(["-v", "%s::rw,share" % vol_src])
+            argv.extend(["-v", "%s::rwdm,share" % vol_src])
     else:
         if read_only:
             argv.extend(["-v", "%s::r" % vol_src])
         else:
-            argv.extend(["-v", "%s::rw" % vol_src])
+            argv.extend(["-v", "%s::rwdm" % vol_src])
 
     return argv
 

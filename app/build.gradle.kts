@@ -13,7 +13,7 @@ android {
         minSdk = 28
         targetSdk = 34
         versionCode = 2
-        versionName = "0.2.0-copyparty"
+        versionName = "0.1.1"
 
         ndk {
             // Z Flip5 / modern phones: arm64 only (smaller APK)

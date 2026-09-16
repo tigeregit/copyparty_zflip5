@@ -15,7 +15,7 @@
     <string name="port_label">端口</string>
     <string name="password_label">访问密码（可选，映射为 copyparty 账户 share）</string>
     <string name="password_hint">留空则匿名访问（按只读/读写设置）</string>
-    <string name="read_only_label">只读模式</string>
+    <string name="read_only_label">只读模式（关闭后才可删除/移动）</string>
     <string name="share_root_label">共享目录</string>
     <string name="share_root_none">尚未选择</string>
     <string name="share_root_resolved">路径：%1$s</string>
