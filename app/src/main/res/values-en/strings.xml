@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Copyparty Z Flip5</string>
+    <string name="widget_name">File Server Panel</string>
+    <string name="main_title">LAN File Server (copyparty)</string>
+    <string name="mvp_banner">Embeds upstream Python copyparty via Chaquopy. Foreground service serves real HTTP; cover widget starts/stops it.</string>
+    <string name="status_label">Status</string>
+    <string name="status_running">Running</string>
+    <string name="status_stopped">Stopped</string>
+    <string name="lan_url_label">LAN URL</string>
+    <string name="nic_label">NIC / LAN address</string>
+    <string name="nic_auto">Auto (prefer Wi‑Fi)</string>
+    <string name="nic_hint">Auto: listen on all interfaces, show best LAN IP. Manual: bind and show that IP.</string>
+    <string name="nic_item_fmt">%1$s — %2$s</string>
+    <string name="port_label">Port</string>
+    <string name="password_label">Password (optional → copyparty account share)</string>
+    <string name="password_hint">Empty = anonymous (per read-only/RW)</string>
+    <string name="read_only_label">Read-only</string>
+    <string name="share_root_label">Share folder</string>
+    <string name="share_root_none">Not selected</string>
+    <string name="share_root_resolved">Path: %1$s</string>
+    <string name="share_root_unresolved">Cannot resolve path: %1$s (grant all-files access and re-pick)</string>
+    <string name="btn_pick_root">Pick share folder</string>
+    <string name="btn_save">Save settings</string>
+    <string name="btn_all_files">Grant all-files access</string>
+    <string name="all_files_granted">All-files access: granted</string>
+    <string name="all_files_missing">All-files access: missing (copyparty needs real paths)</string>
+    <string name="action_start">Start</string>
+    <string name="action_stop">Stop</string>
+    <string name="qr_label">Scan to open (same Wi‑Fi)</string>
+    <string name="toast_saved">Settings saved</string>
+    <string name="toast_need_root">Pick a share folder first</string>
+    <string name="toast_root_selected">Share folder selected</string>
+    <string name="toast_need_all_files">Grant all-files access first</string>
+    <string name="toast_path_resolve_fail">Cannot resolve folder path; pick a folder on internal storage</string>
+    <string name="notification_channel">File server</string>
+    <string name="notification_channel_desc">copyparty LAN file server is running</string>
+    <string name="notification_title">copyparty running</string>
+    <string name="notification_starting">Starting copyparty…</string>
+    <string name="widget_port_fmt">Port %1$d</string>
+    <string name="widget_open_main">Open settings</string>
+    <string name="widget_refresh">Refresh</string>
+    <string name="howto_widget">Cover widget: Settings → Cover screen → Widgets → enable File Server Panel</string>
+</resources>

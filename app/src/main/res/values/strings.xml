@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Copyparty Z Flip5</string>
+    <string name="widget_name">文件服务器控制面板</string>
+    <string name="main_title">局域网文件服务器（copyparty）</string>
+    <string name="mvp_banner">已嵌入上游 Python copyparty（Chaquopy）。通过前台服务在局域网提供完整 HTTP 文件服务；封面小部件可启停。</string>
+    <string name="status_label">状态</string>
+    <string name="status_running">运行中</string>
+    <string name="status_stopped">已停止</string>
+    <string name="lan_url_label">局域网地址</string>
+    <string name="nic_label">网卡 / 局域网地址</string>
+    <string name="nic_auto">自动（优选 Wi‑Fi）</string>
+    <string name="nic_hint">自动：监听全部网卡，界面显示最佳局域网 IP。手动选择：绑定并显示该 IP。</string>
+    <string name="nic_item_fmt">%1$s — %2$s</string>
+    <string name="port_label">端口</string>
+    <string name="password_label">访问密码（可选，映射为 copyparty 账户 share）</string>
+    <string name="password_hint">留空则匿名访问（按只读/读写设置）</string>
+    <string name="read_only_label">只读模式</string>
+    <string name="share_root_label">共享目录</string>
+    <string name="share_root_none">尚未选择</string>
+    <string name="share_root_resolved">路径：%1$s</string>
+    <string name="share_root_unresolved">无法解析为真实路径：%1$s（请授予所有文件访问权限后重选）</string>
+    <string name="btn_pick_root">选择共享目录</string>
+    <string name="btn_save">保存设置</string>
+    <string name="btn_all_files">授予所有文件访问权限</string>
+    <string name="all_files_granted">所有文件访问：已授予</string>
+    <string name="all_files_missing">所有文件访问：未授予（copyparty 需要真实路径）</string>
+    <string name="action_start">启动</string>
+    <string name="action_stop">停止</string>
+    <string name="qr_label">扫码访问（同一 Wi‑Fi）</string>
+    <string name="toast_saved">设置已保存</string>
+    <string name="toast_need_root">请先选择共享目录</string>
+    <string name="toast_root_selected">已选择共享目录</string>
+    <string name="toast_need_all_files">请先授予「所有文件访问权限」</string>
+    <string name="toast_path_resolve_fail">无法解析目录路径，请选择内部存储中的文件夹</string>
+    <string name="notification_channel">文件服务器</string>
+    <string name="notification_channel_desc">copyparty 局域网文件服务器运行中</string>
+    <string name="notification_title">copyparty 运行中</string>
+    <string name="notification_starting">正在启动 copyparty…</string>
+    <string name="widget_port_fmt">端口 %1$d</string>
+    <string name="widget_open_main">打开设置</string>
+    <string name="widget_refresh">刷新</string>
+    <string name="howto_widget">封面小部件：设置 → 封面屏幕 → 小部件 → 启用「文件服务器控制面板」</string>
+</resources>

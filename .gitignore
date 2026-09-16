@@ -1,0 +1,59 @@
+# Built application files
+*.apk
+*.ap_
+*.aab
+*.dex
+
+# Generated files
+bin/
+gen/
+out/
+release/
+
+# Gradle
+.gradle/
+build/
+**/build/
+
+# Local configuration (SDK path)
+local.properties
+
+# Android Studio / IntelliJ
+*.iml
+.idea/
+*.ipr
+*.iws
+.navigation/
+
+# NDK / CMake
+.cxx/
+obj/
+.externalNativeBuild/
+
+# Chaquopy / Python build caches (module-local)
+app/build/
+**/python/env/
+**/chaquopy/
+
+# Captures / profiling
+captures/
+*.hprof
+
+# OS / misc
+.DS_Store
+Thumbs.db
+*.swp
+*~
+
+# Signing (never commit keys)
+*.jks
+*.keystore
+keystore.properties
+
+# Bulky vendor trees not required for build (pip installs copyparty==1.20.23)
+vendor/copyparty/
+vendor/copyparty-slim/
+vendor/copyparty-sfx.py
+
+# Release APK copies (keep outside or ignored)
+*-release/
