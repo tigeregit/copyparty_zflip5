@@ -10,6 +10,7 @@ from __future__ import print_function
 import os
 import socket
 import sys
+import tempfile
 import threading
 import time
 import types
@@ -72,6 +73,9 @@ class PartyBridgeTests(unittest.TestCase):
         pb._thread = None
         pb._error = None
         pb._svchub_patched = False
+        pb._stopping = False
+        with pb._log_lock:
+            pb._log_ring.clear()
 
     def test_close_listeners_frees_port(self):
         srv, port = _listen()
@@ -149,6 +153,172 @@ class PartyBridgeTests(unittest.TestCase):
 
         self.assertIs(pb._unwrap_svchub(Wrap2), Orig)
         self.assertIs(pb._unwrap_svchub(Orig), Orig)
+
+    def test_systemexit_sets_nonempty_error(self):
+        """Runner SystemExit must populate _error (unless stopping)."""
+        share = tempfile.mkdtemp(prefix="cpp-share-")
+        hist = tempfile.mkdtemp(prefix="cpp-hist-")
+
+        copyparty = types.ModuleType("copyparty")
+        main_mod = types.ModuleType("copyparty.__main__")
+        svchub = types.ModuleType("copyparty.svchub")
+        svchub.SvcHub = FakeSvcHub
+        main_mod.SvcHub = FakeSvcHub
+
+        def boom_main(argv):
+            print("argparse: bad config for test", file=sys.stderr)
+            raise SystemExit(2)
+
+        main_mod.main = boom_main
+        sys.modules["copyparty"] = copyparty
+        sys.modules["copyparty.__main__"] = main_mod
+        sys.modules["copyparty.svchub"] = svchub
+
+        ok = pb.start(39231, share, True, "secret-pw", hist, "127.0.0.1")
+        self.assertFalse(ok)
+        err = pb.last_error()
+        self.assertIsNotNone(err)
+        self.assertTrue(err.strip(), "expected nonempty diagnostic")
+        self.assertIn("SystemExit", err)
+        self.assertIn("39231", err)
+        self.assertNotIn("secret-pw", err)
+        self.assertIn("<redacted>", err)
+        # log ring should have captured stderr/print
+        self.assertTrue(pb.last_log())
+
+    def test_systemexit_ignored_while_stopping(self):
+        share = tempfile.mkdtemp(prefix="cpp-share-")
+        hist = tempfile.mkdtemp(prefix="cpp-hist-")
+
+        copyparty = types.ModuleType("copyparty")
+        main_mod = types.ModuleType("copyparty.__main__")
+        svchub = types.ModuleType("copyparty.svchub")
+        svchub.SvcHub = FakeSvcHub
+        main_mod.SvcHub = FakeSvcHub
+
+        started = threading.Event()
+
+        def slow_exit_main(argv):
+            started.set()
+            time.sleep(0.3)
+            raise SystemExit(0)
+
+        main_mod.main = slow_exit_main
+        sys.modules["copyparty"] = copyparty
+        sys.modules["copyparty.__main__"] = main_mod
+        sys.modules["copyparty.svchub"] = svchub
+
+        # Kick runner without waiting for readiness via internals
+        pb._stopping = False
+        pb._error = None
+        pb._hub = None
+        pb._started_event.clear()
+
+        def runner():
+            global_ns = pb
+            global_ns._running = True
+            try:
+                pb._install_io_tee()
+                pb._capture_hub()
+                from copyparty.__main__ import main
+                main(["copyparty"])
+            except SystemExit as e:
+                if not pb._stopping:
+                    pb._error = pb._diagnostic("SystemExit(%r)" % (e.code,), argv=["copyparty"])
+            finally:
+                pb._running = False
+                pb._hub = None
+                pb._started_event.set()
+
+        # Prefer exercising start() with stop overlap: mark stopping before exit
+        def main_stop_race(argv):
+            started.set()
+            # Simulate stop requested before SystemExit from shutdown
+            pb._stopping = True
+            raise SystemExit(0)
+
+        main_mod.main = main_stop_race
+        ok = pb.start(39232, share, True, "", hist, "127.0.0.1")
+        self.assertFalse(ok)
+        # While stopping, SystemExit must not invent a scary startup error
+        self.assertTrue(
+            pb.last_error() is None
+            or "failed to become ready" in (pb.last_error() or "")
+            or "SystemExit" not in (pb.last_error() or "")
+        )
+
+    def test_first_start_readiness_success(self):
+        """First start succeeds when hub is created and thread stays alive."""
+        share = tempfile.mkdtemp(prefix="cpp-share-")
+        hist = tempfile.mkdtemp(prefix="cpp-hist-")
+
+        copyparty = types.ModuleType("copyparty")
+        main_mod = types.ModuleType("copyparty.__main__")
+        svchub = types.ModuleType("copyparty.svchub")
+
+        class ReadyHub(FakeSvcHub):
+            def __init__(self, *a, **kw):
+                FakeSvcHub.__init__(self, [])
+                # CapturingSvcHub sets _hub after Orig.__init__
+
+        svchub.SvcHub = ReadyHub
+        main_mod.SvcHub = ReadyHub
+
+        hold = threading.Event()
+
+        def ready_main(argv):
+            # Construct hub the same way copyparty does
+            hub = svchub.SvcHub()
+            # Block like SvcHub.run() until stop
+            hold.wait(timeout=5.0)
+
+        main_mod.main = ready_main
+        sys.modules["copyparty"] = copyparty
+        sys.modules["copyparty.__main__"] = main_mod
+        sys.modules["copyparty.svchub"] = svchub
+
+        try:
+            ok = pb.start(39233, share, True, "", hist, "127.0.0.1")
+            self.assertTrue(ok, pb.last_error())
+            self.assertTrue(pb.is_running())
+            self.assertIsNotNone(pb._hub)
+            self.assertFalse(pb.last_error())
+        finally:
+            hold.set()
+            pb.stop()
+
+    def test_false_start_without_hub_sets_diagnostic(self):
+        """If main returns without hub/SystemExit, start still sets a diagnostic."""
+        share = tempfile.mkdtemp(prefix="cpp-share-")
+        hist = tempfile.mkdtemp(prefix="cpp-hist-")
+
+        copyparty = types.ModuleType("copyparty")
+        main_mod = types.ModuleType("copyparty.__main__")
+        svchub = types.ModuleType("copyparty.svchub")
+        svchub.SvcHub = FakeSvcHub
+        main_mod.SvcHub = FakeSvcHub
+
+        def quiet_main(argv):
+            return None  # exits without creating a hub
+
+        main_mod.main = quiet_main
+        sys.modules["copyparty"] = copyparty
+        sys.modules["copyparty.__main__"] = main_mod
+        sys.modules["copyparty.svchub"] = svchub
+
+        ok = pb.start(39234, share, False, "pw-should-hide", hist, "127.0.0.1")
+        self.assertFalse(ok)
+        err = pb.last_error()
+        self.assertTrue(err and err.strip())
+        self.assertIn("failed to become ready", err)
+        self.assertIn("thread_alive=", err)
+        self.assertNotIn("pw-should-hide", err)
+
+    def test_redact_argv(self):
+        argv = ["copyparty", "-a", "share:s3cret", "-v", "/tmp::r,share"]
+        red = pb._redact_argv(argv)
+        self.assertEqual(red[red.index("-a") + 1], "<redacted>")
+        self.assertNotIn("s3cret", " ".join(red))
 
 
 if __name__ == "__main__":

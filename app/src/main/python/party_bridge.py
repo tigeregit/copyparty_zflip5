@@ -2,6 +2,8 @@
 """Bridge: start/stop real copyparty inside Chaquopy."""
 from __future__ import print_function
 
+import collections
+import io
 import os
 import socket
 import sys
@@ -18,6 +20,12 @@ _started_event = threading.Event()
 _svchub_patched = False
 _tracked_socks = []
 _stopping = False
+_LOG_MAX = 200
+_log_ring = collections.deque(maxlen=_LOG_MAX)
+_log_lock = threading.Lock()
+_io_patched = False
+_orig_stdout = None
+_orig_stderr = None
 
 
 def is_running():
@@ -26,6 +34,163 @@ def is_running():
 
 def last_error():
     return _error
+
+
+def last_log(n=40):
+    """Return the most recent captured bridge / copyparty log lines."""
+    with _log_lock:
+        lines = list(_log_ring)
+    if n is not None and n > 0:
+        lines = lines[-int(n):]
+    return "\n".join(lines)
+
+
+def _ring_write(text):
+    if text is None:
+        return
+    s = text if isinstance(text, str) else str(text)
+    if not s:
+        return
+    with _log_lock:
+        # Split on newlines so the ring stays line-oriented.
+        parts = s.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+        for i, part in enumerate(parts):
+            if i < len(parts) - 1:
+                _log_ring.append(part)
+            elif part:
+                # trailing fragment without newline — keep as its own line
+                _log_ring.append(part)
+
+
+def _bridge_print(*args, **kwargs):
+    """Print and always capture into the ring buffer."""
+    try:
+        buf = io.StringIO()
+        kwargs = dict(kwargs)
+        kwargs["file"] = buf
+        print(*args, **kwargs)
+        msg = buf.getvalue()
+    except Exception:
+        msg = " ".join(str(a) for a in args) + "\n"
+    _ring_write(msg.rstrip("\n") if msg.endswith("\n") else msg)
+    try:
+        out = _orig_stdout if _orig_stdout is not None else sys.__stdout__
+        if out is not None:
+            out.write(msg)
+            if hasattr(out, "flush"):
+                out.flush()
+    except Exception:
+        pass
+
+
+class _TeeStream(object):
+    """Tee writes into the ring buffer while forwarding to the real stream."""
+
+    def __init__(self, real):
+        self._real = real
+
+    def write(self, data):
+        try:
+            _ring_write(data)
+        except Exception:
+            pass
+        try:
+            if self._real is not None:
+                return self._real.write(data)
+        except Exception:
+            pass
+        return len(data) if data is not None else 0
+
+    def flush(self):
+        try:
+            if self._real is not None and hasattr(self._real, "flush"):
+                self._real.flush()
+        except Exception:
+            pass
+
+    def fileno(self):
+        if self._real is not None and hasattr(self._real, "fileno"):
+            return self._real.fileno()
+        raise io.UnsupportedOperation("fileno")
+
+    def isatty(self):
+        try:
+            return bool(self._real is not None and self._real.isatty())
+        except Exception:
+            return False
+
+    @property
+    def encoding(self):
+        return getattr(self._real, "encoding", "utf-8")
+
+    def __getattr__(self, name):
+        return getattr(self._real, name)
+
+
+def _install_io_tee():
+    global _io_patched, _orig_stdout, _orig_stderr
+    if _io_patched:
+        return
+    _orig_stdout = sys.stdout
+    _orig_stderr = sys.stderr
+    sys.stdout = _TeeStream(_orig_stdout)
+    sys.stderr = _TeeStream(_orig_stderr)
+    _io_patched = True
+
+
+def _redact_argv(argv):
+    out = []
+    skip_next = False
+    for i, tok in enumerate(list(argv or [])):
+        if skip_next:
+            out.append("<redacted>")
+            skip_next = False
+            continue
+        if tok in ("-a", "--a"):
+            out.append(tok)
+            skip_next = True
+            continue
+        # -a user:pass form already handled via next-token; also scrub inline
+        if isinstance(tok, str) and tok.startswith("share:") and ":" in tok[6:]:
+            out.append("share:<redacted>")
+            continue
+        out.append(tok)
+    return out
+
+
+def _hub_state():
+    hub = _hub
+    if hub is None:
+        return "hub=None"
+    tcpsrv = getattr(hub, "tcpsrv", None)
+    nsrv = 0
+    if tcpsrv is not None:
+        try:
+            nsrv = len(getattr(tcpsrv, "srv", None) or [])
+        except Exception:
+            nsrv = -1
+    return "hub=%s stopping=%s tcpsrv_socks=%s" % (
+        type(hub).__name__,
+        getattr(hub, "stopping", "?"),
+        nsrv,
+    )
+
+
+def _diagnostic(prefix, argv=None, extra=""):
+    t = _thread
+    alive = bool(t is not None and t.is_alive())
+    parts = [
+        prefix,
+        "running=%s thread_alive=%s %s" % (_running, alive, _hub_state()),
+    ]
+    if argv is not None:
+        parts.append("argv=%s" % (" ".join(_redact_argv(argv)),))
+    tail = last_log(40)
+    if tail:
+        parts.append("--- log tail ---\n" + tail)
+    if extra:
+        parts.append(extra)
+    return "\n".join(parts)
 
 
 def _close_one_sock(srv):
@@ -162,6 +327,8 @@ def _capture_hub():
                 _started_event.set()
 
         def shutdown(self):
+            # Close listen sockets first so restart can bind; isolate SystemExit
+            # so Chaquopy / Android caller threads are not killed.
             try:
                 _close_listeners(self)
             except Exception:
@@ -169,8 +336,6 @@ def _capture_hub():
             try:
                 Orig.shutdown(self)
             except SystemExit:
-                # copyparty.shutdown() ends with sys.exit(); do not kill the
-                # Chaquopy / Android caller thread.
                 return
 
     svchub.SvcHub = CapturingSvcHub
@@ -227,7 +392,7 @@ def _stop_unlocked():
             except SystemExit:
                 pass
             except Exception:
-                print("[party_bridge] shutdown error:\n", traceback.format_exc())
+                _bridge_print("[party_bridge] shutdown error:\n", traceback.format_exc())
                 try:
                     hub.sigterm()
                 except Exception:
@@ -256,7 +421,7 @@ def _start_unlocked(port, share_path, read_only, password, hist_dir, bind_host):
     prev = _thread
     leftover_hub = _hub
     if (prev is not None and prev.is_alive()) or leftover_hub is not None:
-        print("[party_bridge] leftover instance; stopping before restart")
+        _bridge_print("[party_bridge] leftover instance; stopping before restart")
         _stop_unlocked()
         _wait_port_released(bind_host, port, timeout=2.0)
 
@@ -283,18 +448,28 @@ def _start_unlocked(port, share_path, read_only, password, hist_dir, bind_host):
         global _running, _error, _hub
         _running = True
         try:
+            _install_io_tee()
             _capture_hub()
             from copyparty.__main__ import main
-            print("[party_bridge] starting:", " ".join(argv))
+            _bridge_print(
+                "[party_bridge] starting:", " ".join(_redact_argv(argv))
+            )
             main(argv)
         except SystemExit as e:
-            print("[party_bridge] SystemExit", e)
+            code = getattr(e, "code", e)
+            msg = "SystemExit(%r)" % (code,)
+            _bridge_print("[party_bridge]", msg)
+            if not _stopping:
+                _error = _diagnostic(msg, argv=argv)
         except Exception:
             if _stopping:
-                print("[party_bridge] ignored error during stop:\n", traceback.format_exc())
+                _bridge_print(
+                    "[party_bridge] ignored error during stop:\n",
+                    traceback.format_exc(),
+                )
             else:
                 _error = traceback.format_exc()
-                print("[party_bridge] crash:\n", _error)
+                _bridge_print("[party_bridge] crash:\n", _error)
         finally:
             _running = False
             try:
@@ -303,7 +478,7 @@ def _start_unlocked(port, share_path, read_only, password, hist_dir, bind_host):
                 pass
             _hub = None
             _started_event.set()
-            print("[party_bridge] stopped")
+            _bridge_print("[party_bridge] stopped")
 
     _thread = threading.Thread(target=runner, name="copyparty-main", daemon=True)
     _thread.start()
@@ -314,6 +489,11 @@ def _start_unlocked(port, share_path, read_only, password, hist_dir, bind_host):
     if _running or _hub is not None:
         _track_hub_sockets(_hub)
         return True
+    # False start with no exception path — still give Kotlin a copyable diagnostic.
+    _error = _diagnostic(
+        "copyparty failed to become ready (no hub / not running after start wait)",
+        argv=argv,
+    )
     return False
 
 
@@ -327,7 +507,7 @@ def start(port, share_path, read_only, password, hist_dir, bind_host="0.0.0.0"):
         if ok:
             return True
         if _is_addr_in_use_text(_error):
-            print("[party_bridge] EADDRINUSE; forcing release and retry")
+            _bridge_print("[party_bridge] EADDRINUSE; forcing release and retry")
             _stop_unlocked()
             _wait_port_released(bind_host, port, timeout=2.5)
             _error = None
@@ -342,6 +522,13 @@ def start(port, share_path, read_only, password, hist_dir, bind_host="0.0.0.0"):
                     "请再点一次启动，或更换端口。\n\n%s"
                     % (port, _error or "")
                 )
+        if not ok and not _error:
+            _error = _diagnostic(
+                "copyparty start returned false without an error detail",
+                argv=_build_argv(
+                    port, share_path, read_only, password or "", hist_dir, bind_host
+                ),
+            )
         return False
 
 
@@ -356,4 +543,5 @@ def status():
         "running": is_running(),
         "error": _error or "",
         "has_hub": _hub is not None,
+        "log_tail": last_log(20),
     }
