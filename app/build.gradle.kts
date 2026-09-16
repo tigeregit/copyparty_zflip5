@@ -12,8 +12,8 @@ android {
         applicationId = "com.copyparty.zflip5"
         minSdk = 28
         targetSdk = 34
-        versionCode = 3
-        versionName = "0.1.2"
+        versionCode = 4
+        versionName = "0.1.3"
 
         ndk {
             // Z Flip5 / modern phones: arm64 only (smaller APK)
